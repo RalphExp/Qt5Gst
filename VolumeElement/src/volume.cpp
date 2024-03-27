@@ -1,7 +1,11 @@
 #include <stdio.h>
 #include <gst/gst.h>
+#include <string.h>
 
 #include <algorithm>
+#include <string>
+
+using namespace std;
 
 GstElement* pipeline = nullptr;
 GstElement* volume = nullptr;
@@ -10,25 +14,42 @@ GstBus* bus = nullptr;
 GIOChannel* io_stdin = nullptr;
 GMainLoop* main_loop = nullptr;
 
-static gboolean handle_keyboard(GIOChannel* source, GIOCondition cond, GstElement* volume);
+const char* tpl = "filesrc location=../resource/%s name=source ! "
+    "decodebin ! audioconvert ! level name=_lvl interval=10000000 ! "
+    "volume name=test_vol volume=%f mute=false ! "
+    "speed name=_speed ! audiorate ! audioresample ! audioconvert ! capsfilter name=sink_caps caps=audio/x-raw ! "
+    "osxaudiosink buffer-time=150000 name=sink sync=false";
+
+const char* file = nullptr;
+
+int vol = 50;
+
+static gboolean handle_keyboard(GIOChannel* source, GIOCondition cond, void*);
 
 static gboolean handle_message(GstBus* bus, GstMessage * msg, GstElement* pipeline);
 
+string build_pipeline() {
+    char buff[1024] = {0};
+    sprintf(buff, tpl, file, vol/100.0);
+    return buff;
+}
+
 int main(int argc, char* argv[]) {
+    if (argc == 2 && strcmp(argv[1], "1") == 0) {
+        file = "ring.wav";
+    } else {
+        file = "audio_test.wav";
+    }
+
     gst_init(&argc, &argv);
-    
-    pipeline = gst_parse_launch("filesrc location=../resource/audio_test.wav name=source ! "
-        "decodebin ! audioconvert ! level name=_lvl interval=10000000 ! "
-        "volume name=test_vol volume=1.0 mute=false ! "
-        "speed name=_speed ! audiorate ! audioresample ! audioconvert ! capsfilter name=sink_caps caps=audio/x-raw ! "
-        "osxaudiosink buffer-time=150000 name=sink sync=false", NULL);
+    pipeline = gst_parse_launch(build_pipeline().c_str(), NULL);
 
     volume = gst_bin_get_by_name(GST_BIN(pipeline), "test_vol");
     bus = gst_element_get_bus (pipeline);
     gst_bus_add_watch(bus, (GstBusFunc) handle_message, pipeline);
 
     io_stdin = g_io_channel_unix_new(fileno (stdin));
-    g_io_add_watch(io_stdin, G_IO_IN, (GIOFunc)handle_keyboard, volume);
+    g_io_add_watch(io_stdin, G_IO_IN, (GIOFunc)handle_keyboard, NULL);
 
     gst_element_set_state (pipeline, GST_STATE_PLAYING);
     main_loop = g_main_loop_new(NULL, FALSE);
@@ -61,11 +82,20 @@ static gboolean handle_message(GstBus* bus, GstMessage* msg, GstElement* pipelin
         g_free (debug_info);
         g_main_loop_quit (main_loop);
         break;
+
     case GST_MESSAGE_EOS:
         g_print ("End-Of-Stream reached.\n");
-        g_main_loop_quit (main_loop);
-        // gst_element_set_state(pipeline, GST_STATE_READY);
-        // gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        gst_element_set_state (pipeline, GST_STATE_NULL);
+        gst_object_unref(volume);
+        gst_object_unref(bus);
+        gst_object_unref(pipeline);
+        
+        pipeline = gst_parse_launch(build_pipeline().c_str(), NULL);
+        volume = gst_bin_get_by_name(GST_BIN(pipeline), "test_vol");
+        gst_element_set_state (pipeline, GST_STATE_PLAYING);
+
+        bus = gst_element_get_bus (pipeline);
+        gst_bus_add_watch(bus, (GstBusFunc) handle_message, pipeline);
         break;
     default:
         break;
@@ -75,10 +105,9 @@ static gboolean handle_message(GstBus* bus, GstMessage* msg, GstElement* pipelin
     return true;
 }
 
-static gboolean handle_keyboard(GIOChannel* source, GIOCondition cond, GstElement* volume) {
+static gboolean handle_keyboard(GIOChannel* source, GIOCondition cond, void*) {
     gchar *str = NULL;
-    int vol = -1;
-
+    
     if (g_io_channel_read_line (source, &str, NULL, NULL, NULL) == G_IO_STATUS_NORMAL) {
         vol = g_ascii_strtoull(str, NULL, 0);
 
