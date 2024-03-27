@@ -8,7 +8,6 @@ LDFLAGS = $(shell echo `pkg-config --libs gstreamer-1.0 gstreamer-video-1.0 gstr
 
 all: $(BIN)
 
-
 VolumeElement: volume.o
 	$(CC) -o$@ $< $(LDFLAGS)
 
@@ -19,5 +18,6 @@ clean:
 	@echo cleaning...
 	rm -rf $(BIN)
 	rm -rf *.dSYM;
+	rm -rf *.o  
 	@echo done
 	
