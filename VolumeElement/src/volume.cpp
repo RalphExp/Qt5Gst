@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <gst/gst.h>
 
+#include <algorithm>
+
 GstElement* pipeline = nullptr;
 GstElement* volume = nullptr;
 GstMessage* msg = nullptr;
@@ -14,15 +16,14 @@ static gboolean handle_message(GstBus* bus, GstMessage * msg, GstElement* pipeli
 
 int main(int argc, char* argv[]) {
     gst_init(&argc, &argv);
+    
+    pipeline = gst_parse_launch("filesrc location=../resource/audio_test.wav name=source ! "
+        "decodebin ! audioconvert ! level name=_lvl interval=10000000 ! "
+        "volume name=test_vol volume=1.0 mute=false ! "
+        "speed name=_speed ! audiorate ! audioresample ! audioconvert ! capsfilter name=sink_caps caps=audio/x-raw ! "
+        "osxaudiosink buffer-time=150000 name=sink sync=false", NULL);
 
-    pipeline = gst_parse_launch("osxaudiosrc device=79 do-timestamp=true name=source ! "
-        "capsfilter name=source_caps caps=audio/x-raw,layout=interleaved,rate=48000,channels=1,format=S16LE ! "
-        "audioconvert ! level name=_lvl interval=10000000 ! "
-        "volume name=my_vol volume=1 mute=false ! queue name=_queue ! "
-        "speed name=_speed ! audiorate  ! audioresample ! audioconvert ! "
-        "capsfilter name=sink_caps caps=audio/x-raw ! osxaudiosink buffer-time=150000 name=sink sync=false", NULL);
-
-    volume = gst_bin_get_by_name(GST_BIN(pipeline), "my_vol");
+    volume = gst_bin_get_by_name(GST_BIN(pipeline), "test_vol");
     bus = gst_element_get_bus (pipeline);
     gst_bus_add_watch(bus, (GstBusFunc) handle_message, pipeline);
 
@@ -63,6 +64,8 @@ static gboolean handle_message(GstBus* bus, GstMessage* msg, GstElement* pipelin
     case GST_MESSAGE_EOS:
         g_print ("End-Of-Stream reached.\n");
         g_main_loop_quit (main_loop);
+        // gst_element_set_state(pipeline, GST_STATE_READY);
+        // gst_element_set_state(pipeline, GST_STATE_PLAYING);
         break;
     default:
         break;
@@ -79,14 +82,22 @@ static gboolean handle_keyboard(GIOChannel* source, GIOCondition cond, GstElemen
     if (g_io_channel_read_line (source, &str, NULL, NULL, NULL) == G_IO_STATUS_NORMAL) {
         vol = g_ascii_strtoull(str, NULL, 0);
 
+        vol = std::min(100, std::max(0, vol));
+
+        // volume = gst_bin_get_by_name(GST_BIN(pipeline), "test_vol");
         if (vol < 0 || vol > 100) {
             g_printerr ("Index out of bounds\n");
         } else {
             /* If the input was a valid audio stream index, set the current audio stream */
             double f = vol/100.0;
             g_print ("Setting volume to %f\n", f);
-            g_object_set(volume, "volume", &f, NULL);
+            g_object_set(volume, "volume", f, NULL);
+
+            double g = 0;
+            g_object_get(volume, "volume", &g, NULL);
+            g_printerr("Getting volume: %f\n", g);
         }
+        // gst_object_unref(volume);
     }
     g_free (str);
     return TRUE;
